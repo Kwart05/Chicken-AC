@@ -4,6 +4,7 @@
 // =============================================================================
 
 #include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
@@ -11,12 +12,8 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 
-// ── Wi-Fi Credentials ────────────────────────────────────────────────────────
-const char* WIFI_SSID = "Kwart's iPhone";
-const char* WIFI_PASS = "1234567890..";
-
-// ── Python Backend / Vercel Server URL ────────────────────────────────────────
-const char* SERVER_URL = "https://chicken-ac.vercel.app/api/telemetry";
+// ── Python Backend / Render Server URL ────────────────────────────────────────
+const char* SERVER_URL = "https://chicken-ac.onrender.com/api/telemetry";
 
 // ── Pin Definitions ──────────────────────────────────────────────────────────
 #define DHTPIN       D5   // Data pin for DHT22
@@ -44,6 +41,7 @@ float humidity     = NAN;
 
 DHT dht(DHTPIN, DHTTYPE, 15);
 ESP8266WebServer server(80);
+ESP8266WiFiMulti wifiMulti;
 
 unsigned long lastSensorRead = 0;
 const long readInterval = 2000; // Read sensors every 2 seconds
@@ -67,7 +65,7 @@ void setup() {
   // Initialize GPIO Pins
   pinMode(FAN_PIN, OUTPUT);
   pinMode(PUMP_PIN, OUTPUT);
-  pinMode(WATER_SW_PIN, INPUT_PULLUP); // Uses internal pullup resistor
+  pinMode(WATER_SW_PIN, INPUT_PULLUP);
 
   digitalWrite(FAN_PIN, RELAY_OFF);
   digitalWrite(PUMP_PIN, RELAY_OFF);
@@ -75,21 +73,41 @@ void setup() {
   // Initialize DHT Sensor
   dht.begin();
 
-  // Connect to Wi-Fi
+  // Method 1: Register Multiple Known Wi-Fi Hotspots
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  wifiMulti.addAP("Kwart's iPhone", "1234567890..");
+  wifiMulti.addAP("June", "senbonzakura");
 
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
-
-  // Define Web Server Endpoints (for standalone HTTP dashboard & API)
-  server.on("/", handleRoot);
-  server.on("/api/data", handleGetData);     // Fetch current telemetry (JSON)
-  server.on("/api/toggle", handleToggle);   // Control endpoints via API
+  Serial.println("Attempting connection to known Wi-Fi hotspots...");
   
-  // Enable CORS so external web app can hit API directly
+  // Try connecting for 10 seconds to known APs
+  unsigned long startConnect = millis();
+  while (wifiMulti.run() != WL_CONNECTED && millis() - startConnect < 10000) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  // Method 2: Fallback to WiFiManager Captive Portal if no known AP is reachable
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nKnown Wi-Fi not found! Launching 'ChickenAC-Setup' portal...");
+    WiFiManager wm;
+    wm.setConfigPortalTimeout(180); // Stay open for 3 minutes
+    if (!wm.autoConnect("ChickenAC-Setup")) {
+      Serial.println("Portal timeout. Proceeding without Wi-Fi...");
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected to Wi-Fi!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  }
+
+  // Define Web Server Endpoints
+  server.on("/", handleRoot);
+  server.on("/api/data", handleGetData);
+  server.on("/api/toggle", handleToggle);
+  
   server.enableCORS(true);
   server.begin();
 }
@@ -97,6 +115,11 @@ void setup() {
 // =============================================================================
 void loop() {
   server.handleClient();
+
+  // Auto-reconnect to best available hotspot ("Kwart's iPhone" or "June")
+  if (WiFi.status() != WL_CONNECTED) {
+    wifiMulti.run();
+  }
 
   unsigned long now = millis();
 
