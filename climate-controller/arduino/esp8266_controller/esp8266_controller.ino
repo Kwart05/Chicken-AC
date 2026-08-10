@@ -15,8 +15,8 @@
 const char* WIFI_SSID = "Kwart's iPhone";
 const char* WIFI_PASS = "1234567890..";
 
-// ── Python Backend Server URL ────────────────────────────────────────────────
-const char* SERVER_URL = "http://172.20.10.6:8000/api/telemetry";
+// ── Python Backend / Vercel Server URL ────────────────────────────────────────
+const char* SERVER_URL = "https://chicken-ac.vercel.app/api/telemetry";
 
 // ── Pin Definitions ──────────────────────────────────────────────────────────
 #define DHTPIN       D5   // Data pin for DHT22

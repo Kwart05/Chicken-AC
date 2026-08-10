@@ -1139,38 +1139,63 @@ async function post(url, body) {
   }
 }
 
-// ── WebSocket ─────────────────────────────────────────────────────────────────
+// ── WebSocket & HTTP Polling Fallback ─────────────────────────────────────────
 let ws = null;
 let wsReconnectTimer = null;
+let pollTimer = null;
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/status');
+      if (res.ok) {
+        const s = await res.json();
+        Object.assign(state, s);
+        render(state);
+      }
+    } catch (err) {
+      console.warn('HTTP poll failed', err);
+    }
+  }, 2000);
+}
 
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  try {
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
 
-  ws.onmessage = (e) => {
-    try {
-      const s = JSON.parse(e.data);
-      Object.assign(state, s);
-      render(state);
-    } catch (err) {
-      console.error('WS parse error', err);
-    }
-  };
+    ws.onmessage = (e) => {
+      try {
+        const s = JSON.parse(e.data);
+        Object.assign(state, s);
+        render(state);
+      } catch (err) {
+        console.error('WS parse error', err);
+      }
+    };
 
-  ws.onopen = () => {
-    clearTimeout(wsReconnectTimer);
-    console.log('WebSocket connected');
-  };
+    ws.onopen = () => {
+      clearTimeout(wsReconnectTimer);
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      console.log('WebSocket connected');
+    };
 
-  ws.onclose = () => {
-    console.log('WebSocket closed, reconnecting in 3s…');
-    wsReconnectTimer = setTimeout(connectWS, 3000);
-  };
+    ws.onclose = () => {
+      console.log('WebSocket closed, starting HTTP polling fallback...');
+      startPolling();
+      wsReconnectTimer = setTimeout(connectWS, 10000);
+    };
 
-  ws.onerror = (e) => {
-    console.error('WebSocket error', e);
-    ws.close();
-  };
+    ws.onerror = (e) => {
+      console.error('WebSocket error, switching to HTTP polling', e);
+      startPolling();
+      try { ws.close(); } catch(_) {}
+    };
+  } catch(e) {
+    console.warn('WebSocket init failed, using HTTP polling', e);
+    startPolling();
+  }
 }
 
 // ── History chart ─────────────────────────────────────────────────────────────
