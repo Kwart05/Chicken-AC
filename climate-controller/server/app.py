@@ -46,7 +46,12 @@ log = logging.getLogger("chicken_ac")
 # Paths
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).parent / "static"
-DB_PATH    = Path(__file__).parent / "climate.db"
+try:
+    DB_PATH = Path(__file__).parent / "climate.db"
+    if not os.access(DB_PATH.parent, os.W_OK):
+        DB_PATH = Path("/tmp/climate.db")
+except Exception:
+    DB_PATH = Path("/tmp/climate.db")
 
 # ---------------------------------------------------------------------------
 # Shared state (protected by a threading.Lock for serial thread writes;
