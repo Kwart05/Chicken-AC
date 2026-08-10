@@ -483,9 +483,30 @@ async def websocket_endpoint(ws: WebSocket):
         log.info("WS client disconnected. Total: %d", len(_ws_clients))
 
 
-# ── Static files (served last so API routes take priority) ──────────────────
-if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+# ── Static files / HTML fallback ─────────────────────────────────────────────
+static_candidates = [
+    Path(__file__).parent / "static",
+    Path(__file__).parent / "server" / "static",
+    Path(__file__).parent,
+]
+
+static_mounted = False
+for s_dir in static_candidates:
+    if s_dir.exists() and (s_dir / "index.html").exists():
+        app.mount("/", StaticFiles(directory=s_dir, html=True), name="static")
+        static_mounted = True
+        log.info("Mounted static directory: %s", s_dir)
+        break
+
+if not static_mounted:
+    from fastapi.responses import FileResponse
+    @app.get("/")
+    def serve_root():
+        for s_dir in static_candidates:
+            idx = s_dir / "index.html"
+            if idx.exists():
+                return FileResponse(idx)
+        return JSONResponse({"status": "Chicken AC API Live", "endpoints": ["/api/status", "/api/telemetry"]})
 
 
 # ---------------------------------------------------------------------------
