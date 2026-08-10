@@ -8,6 +8,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
+#include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
@@ -214,7 +215,8 @@ void processClimateLogic() {
 // =============================================================================
 // Post Telemetry to Python App /api/telemetry
 void sendHTTPTelemetry() {
-  WiFiClient client;
+  WiFiClientSecure client;
+  client.setInsecure(); // Allow HTTPS connection without SSL certificate verification
   HTTPClient http;
 
   if (!http.begin(client, SERVER_URL)) return;
