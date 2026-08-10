@@ -501,8 +501,9 @@ if __name__ == "__main__":
                         help="Serial baud rate (default 9600)")
     parser.add_argument("--host",     default="0.0.0.0",
                         help="Bind host (default 0.0.0.0)")
-    parser.add_argument("--web-port", type=int, default=8000, dest="web_port",
-                        help="HTTP port (default 8000)")
+    env_port = int(os.getenv("PORT", 8000))
+    parser.add_argument("--web-port", type=int, default=env_port, dest="web_port",
+                        help="HTTP port (default 8000 or PORT env)")
     args = parser.parse_args()
 
     _serial_port = args.port
