@@ -60,13 +60,18 @@ void launchSetupPortal();
 
 // =============================================================================
 void launchSetupPortal() {
-  Serial.println("\nForce-launching 'ChickenAC-Setup' portal...");
+  Serial.println("\nLaunching 'ChickenAC-Setup' SoftAP + Control Dashboard...");
   WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+  WiFi.softAP("ChickenAC-Setup");
+
+  Serial.println("SoftAP started: 'ChickenAC-Setup' @ http://192.168.4.1/");
+
   WiFiManager wm;
-  wm.setConfigPortalTimeout(180); // Stay open for 3 minutes
+  wm.setConfigPortalTimeout(180); // 3 minutes timeout
   wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
   if (!wm.startConfigPortal("ChickenAC-Setup")) {
-    Serial.println("Portal timeout. Resuming normal operation...");
+    Serial.println("Portal timeout. Proceeding with offline dashboard...");
   }
 }
 
@@ -118,6 +123,10 @@ void setup() {
     Serial.println("\nConnected to Wi-Fi!");
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+
+    // Disable AP broadcast once connected to Wi-Fi to keep network clean & secure
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
   }
 
   // Define Web Server Endpoints
