@@ -1,0 +1,30 @@
+{
+  "name": "Chicken AC — Climate Controller",
+  "short_name": "Chicken AC",
+  "description": "Industrial climate controller dashboard for poultry warehouse evaporative cooling.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1E2427",
+  "theme_color": "#1E2427",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
