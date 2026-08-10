@@ -22,6 +22,7 @@ const char* SERVER_URL = "https://chicken-ac.onrender.com/api/telemetry";
 #define FAN_PIN      D1   // Relay controlling Ventilation Fan
 #define PUMP_PIN     D2   // Relay controlling Water Pump
 #define WATER_SW_PIN D6   // Water Level Float Switch (Connected to GND)
+#define SETUP_BTN_PIN D3  // Built-in FLASH button on NodeMCU (press to force setup portal)
 
 // ── Relay Logic Configuration (Active-LOW relays) ────────────────────────────
 #define RELAY_ON     LOW
@@ -55,6 +56,19 @@ void handleGetData();
 void handleToggle();
 void sendHTTPTelemetry();
 void processCommand(JsonObject doc);
+void launchSetupPortal();
+
+// =============================================================================
+void launchSetupPortal() {
+  Serial.println("\nForce-launching 'ChickenAC-Setup' portal...");
+  WiFi.mode(WIFI_AP_STA);
+  WiFiManager wm;
+  wm.setConfigPortalTimeout(180); // Stay open for 3 minutes
+  wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+  if (!wm.startConfigPortal("ChickenAC-Setup")) {
+    Serial.println("Portal timeout. Resuming normal operation...");
+  }
+}
 
 // =============================================================================
 void setup() {
@@ -67,12 +81,19 @@ void setup() {
   pinMode(FAN_PIN, OUTPUT);
   pinMode(PUMP_PIN, OUTPUT);
   pinMode(WATER_SW_PIN, INPUT_PULLUP);
+  pinMode(SETUP_BTN_PIN, INPUT_PULLUP);
 
   digitalWrite(FAN_PIN, RELAY_OFF);
   digitalWrite(PUMP_PIN, RELAY_OFF);
 
   // Initialize DHT Sensor
   dht.begin();
+
+  // If FLASH button (D3) is pressed at boot, launch setup portal immediately
+  if (digitalRead(SETUP_BTN_PIN) == LOW) {
+    Serial.println("FLASH button pressed at boot!");
+    launchSetupPortal();
+  }
 
   // Method 1: Register Multiple Known Wi-Fi Hotspots
   WiFi.mode(WIFI_STA);
@@ -90,14 +111,7 @@ void setup() {
 
   // Method 2: Fallback to WiFiManager Captive Portal if no known AP is reachable
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nKnown Wi-Fi not found! Launching 'ChickenAC-Setup' portal...");
-    WiFi.mode(WIFI_AP_STA);
-    WiFiManager wm;
-    wm.setConfigPortalTimeout(180); // Stay open for 3 minutes
-    wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-    if (!wm.startConfigPortal("ChickenAC-Setup")) {
-      Serial.println("Portal timeout. Proceeding without Wi-Fi...");
-    }
+    launchSetupPortal();
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -118,6 +132,19 @@ void setup() {
 // =============================================================================
 void loop() {
   server.handleClient();
+
+  // Check if FLASH button (D3) is pressed during runtime -> Launch setup portal
+  if (digitalRead(SETUP_BTN_PIN) == LOW) {
+    static unsigned long btnPressStart = 0;
+    if (btnPressStart == 0) btnPressStart = millis();
+    if (millis() - btnPressStart > 2000) { // Held for 2 seconds
+      btnPressStart = 0;
+      launchSetupPortal();
+    }
+  } else {
+    static unsigned long btnPressStart = 0;
+    btnPressStart = 0;
+  }
 
   // Auto-reconnect to best available hotspot ("Kwart's iPhone" or "June")
   if (WiFi.status() != WL_CONNECTED) {
