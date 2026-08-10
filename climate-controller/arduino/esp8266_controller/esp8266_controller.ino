@@ -90,9 +90,11 @@ void setup() {
   // Method 2: Fallback to WiFiManager Captive Portal if no known AP is reachable
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("\nKnown Wi-Fi not found! Launching 'ChickenAC-Setup' portal...");
+    WiFi.mode(WIFI_AP_STA);
     WiFiManager wm;
     wm.setConfigPortalTimeout(180); // Stay open for 3 minutes
-    if (!wm.autoConnect("ChickenAC-Setup")) {
+    wm.setAPStaticIPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+    if (!wm.startConfigPortal("ChickenAC-Setup")) {
       Serial.println("Portal timeout. Proceeding without Wi-Fi...");
     }
   }
