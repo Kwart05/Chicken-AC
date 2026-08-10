@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chicken AC — Climate Controller</title>
+  <meta name="description" content="Industrial climate controller dashboard for poultry warehouse evaporative cooling pad." />
+  <meta name="theme-color" content="#1E2427" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Chicken AC" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── Design Tokens ──────────────────────────────────────────────────── */
+    :root {
+      --bg:        #1E2427;
+      --panel:     #262E32;
+      --raised:    #2C3539;
+      --border:    #3A4449;
+      --amber:     #E8A33D;
+      --teal:      #4FB3A9;
+      --red:       #C9584B;
+      --green:     #6FBF73;
+      --text:      #E8E4DA;
+      --muted:     #8B9598;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --font-sans: 'IBM Plex Sans', sans-serif;
+    }
+
+    /* ── Light mode overrides ───────────────────────────────────────────── */
+    :root.light {
+      --bg:        #D6CFC4;
+      --panel:     #C9C2B7;
+      --raised:    #BDB6AA;
+      --border:    #A8A099;
+      --text:      #1E2427;
+      --muted:     #5A5E61;
+    }
+
+    /* ── Theme toggle button ────────────────────────────────────────────── */
+    .theme-btn {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 6px 12px;
+      background: var(--raised);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.2s, color 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .theme-btn:hover { color: var(--text); background: var(--border); }
+    .theme-btn .theme-icon { font-size: 0.9rem; }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    .header {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-title {
+      font-family: var(--font-mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      text-transform: uppercase;
+    }
+
+    .header-subtitle {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .header-spacer { flex: 1; }
+
+    .conn-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .conn-lamp {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      border: 2px solid #555;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .conn-lamp.ok {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+    .conn-lamp.err {
+      background: var(--red);
+      box-shadow: 0 0 6px var(--red);
+    }
+
+    /* ── Main grid ───────────────────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 700px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Section panels ──────────────────────────────────────────────────── */
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 16px;
+    }
+
+    .panel-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
+    /* ── Gauges ─────────────────────────────────────────────────────────── */
+    .gauges-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .gauge-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .gauge-title {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .gauge-svg { overflow: visible; }
+
+    .gauge-value {
+      font-family: var(--font-mono);
+      font-size: 1.5rem;
+      font-weight: 700;
+      text-align: center;
+      min-width: 80px;
+    }
+
+    .gauge-unit {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Status lamps ────────────────────────────────────────────────────── */
+    .lamps-row {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .lamp-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .lamp {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid #3a4449;
+      background: #1a2024;
+      flex-shrink: 0;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .lamp.on-green  { background: var(--green); box-shadow: 0 0 8px var(--green), 0 0 2px #fff2; }
+    .lamp.on-teal   { background: var(--teal);  box-shadow: 0 0 8px var(--teal),  0 0 2px #fff2; }
+    .lamp.on-red    { background: var(--red);   box-shadow: 0 0 8px var(--red),   0 0 2px #fff2; }
+
+    .lamp-label {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      color: var(--text);
+      flex: 1;
+    }
+
+    .lamp-status {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* ── Controls ────────────────────────────────────────────────────────── */
+    .controls-panel {
+      grid-column: 1 / -1;
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: auto 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 700px) {
+      .controls-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Mode selector */
+    .mode-group { display: flex; flex-direction: column; gap: 10px; }
+
+    .mode-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .mode-seg {
+      display: flex;
+      border: 2px solid var(--border);
+      overflow: hidden;
+      width: fit-content;
+    }
+
+    .mode-btn {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      padding: 8px 18px;
+      background: var(--raised);
+      color: var(--muted);
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      text-transform: uppercase;
+    }
+    .mode-btn + .mode-btn { border-left: 1px solid var(--border); }
+    .mode-btn.active {
+      background: var(--amber);
+      color: #1a1a1a;
+    }
+    .mode-btn:hover:not(.active) { background: #3a4449; color: var(--text); }
+
+    /* Rocker switches */
+    .rockers-group { display: flex; flex-direction: column; gap: 16px; }
+
+    .rocker-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .rocker-label {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      color: var(--text);
+      width: 50px;
+      flex-shrink: 0;
+    }
+
+    /* Physical rocker switch (CSS) */
+    .rocker {
+      position: relative;
+      width: 68px;
+      height: 36px;
+      background: var(--raised);
+      border: 2px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .rocker.disabled { opacity: 0.35; cursor: not-allowed; }
+    .rocker::before, .rocker::after {
+      content: '';
+      position: absolute;
+      width: 50%;
+      height: 100%;
+      top: 0;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .rocker::before {
+      left: 0;
+      background: #1a2024;
+      border-right: 1px solid var(--border);
+    }
+    .rocker::after {
+      right: 0;
+      background: #1a2024;
+    }
+    .rocker.on::before {
+      background: var(--green);
+      transform: perspective(40px) rotateY(8deg);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+    }
+    .rocker.on::after {
+      background: #1a2024;
+    }
+    .rocker.off::before { background: #1a2024; }
+    .rocker.off::after  {
+      background: #2a3035;
+      transform: perspective(40px) rotateY(-8deg);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+    }
+
+    .rocker-labels {
+      display: flex;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    .rocker-on-lbl, .rocker-off-lbl { width: 22px; text-align: center; }
+
+    /* Threshold sliders */
+    .sliders-group { display: flex; flex-direction: column; gap: 16px; }
+
+    .slider-row { display: flex; flex-direction: column; gap: 6px; }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .slider-lbl {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .slider-val {
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: var(--raised);
+      border: 1px solid var(--border);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--amber);
+      border: 2px solid #1a1a1a;
+      cursor: pointer;
+    }
+    input[type=range].teal::-webkit-slider-thumb { background: var(--teal); }
+    input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── History panel ───────────────────────────────────────────────────── */
+    .history-panel { grid-column: 1 / -1; }
+
+    .history-toolbar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 14px;
+    }
+
+    .time-btn {
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      padding: 4px 12px;
+      background: var(--raised);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.15s, color 0.15s;
+    }
+    .time-btn.active { background: var(--amber); color: #1a1a1a; border-color: var(--amber); }
+    .time-btn:hover:not(.active) { color: var(--text); }
+
+    .chart-container {
+      position: relative;
+      height: 200px;
+    }
+
+    /* ── Alerts bar ──────────────────────────────────────────────────────── */
+    .alerts-bar {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 8px 20px;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 36px;
+    }
+
+    .alert-item {
+      color: var(--red);
+      display: none;
+    }
+    .alert-item.visible { display: inline; }
+
+    /* ── Divider ─────────────────────────────────────────────────────────── */
+    .vdiv {
+      width: 1px;
+      background: var(--border);
+      align-self: stretch;
+    }
+
+    /* ── Heat Index panel ──────────────────────────────────────────── */
+    .hi-panel { grid-column: 1 / -1; }
+
+    .hi-body {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .hi-readout {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .hi-value {
+      font-family: var(--font-mono);
+      font-size: 2.8rem;
+      font-weight: 700;
+      line-height: 1;
+      transition: color 0.5s;
+    }
+
+    .hi-unit {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+
+    .hi-badge {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border: 2px solid currentColor;
+      margin-top: 4px;
+    }
+
+    .hi-bands {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .hi-band-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hi-band-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,0.2);
+    }
+
+    .hi-band-lbl {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      flex: 1;
+    }
+
+    .hi-band-lbl.active {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .hi-band-range {
+      font-family: var(--font-mono);
+      font-size: 0.62rem;
+      color: var(--muted);
+    }
+
+    .hi-desc {
+      font-family: var(--font-sans);
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.5;
+      flex: 1;
+      min-width: 160px;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ───────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div>
+      <div class="header-title">Chicken AC</div>
+      <div class="header-subtitle">Climate Controller · Evaporative Cooling</div>
+    </div>
+    <div class="header-spacer"></div>
+    <button class="theme-btn" id="serialBtn" onclick="requestWebSerialPort()" aria-label="Request Serial Port Access" title="Connect directly to Arduino/ESP32 via USB Serial">
+      <span class="theme-icon">🔌</span>
+      <span id="serialBtnTxt">CONNECT SERIAL</span>
+    </button>
+    <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" aria-label="Toggle light/dark mode">
+      <span class="theme-icon" id="themeIcon">☀️</span>
+      <span id="themeTxt">LIGHT</span>
+    </button>
+    <div class="conn-indicator">
+      <div class="conn-lamp" id="connLamp"></div>
+      <span id="connText">DISCONNECTED</span>
+    </div>
+  </header>
+
+  <!-- ── Alerts ────────────────────────────────────────────────────────── -->
+  <div class="alerts-bar">
+    <span>SYS ALERTS:</span>
+    <span class="alert-item" id="alertWater">⚠ RESERVOIR EMPTY — PUMP DISABLED</span>
+    <span class="alert-item" id="alertDisconn">⚠ SERIAL LINK OFFLINE</span>
+    <span class="alert-item" id="alertHeat">⚠ HEAT STRESS DANGER — CHECK FLOCK</span>
+    <span id="alertNone" style="color:var(--muted)">NO ACTIVE ALERTS</span>
+  </div>
+
+  <!-- ── Main grid ─────────────────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- Readings: gauges -->
+    <div class="panel">
+      <div class="panel-label">Sensor Readings</div>
+      <div class="gauges-row">
+        <div class="gauge-wrap">
+          <div class="gauge-title">Temperature</div>
+          <svg class="gauge-svg" width="160" height="100" viewBox="0 0 160 100" id="tempGaugeSvg" aria-label="Temperature gauge"></svg>
+          <div class="gauge-value" id="tempVal" style="color:var(--amber)">--.-</div>
+          <div class="gauge-unit">°C</div>
+        </div>
+        <div class="vdiv"></div>
+        <div class="gauge-wrap">
+          <div class="gauge-title">Humidity</div>
+          <svg class="gauge-svg" width="160" height="100" viewBox="0 0 160 100" id="humGaugeSvg" aria-label="Humidity gauge"></svg>
+          <div class="gauge-value" id="humVal" style="color:var(--teal)">--.-</div>
+          <div class="gauge-unit">% RH</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heat Index -->
+    <div class="panel hi-panel">
+      <div class="panel-label">Heat Index — Perceived Temperature</div>
+      <div class="hi-body">
+
+        <!-- Big readout -->
+        <div class="hi-readout">
+          <div class="hi-value" id="hiValue" style="color:#8B9598">--.-</div>
+          <div class="hi-unit">°C FEELS LIKE</div>
+          <div class="hi-badge" id="hiBadge" style="color:#8B9598">NO DATA</div>
+        </div>
+
+        <!-- Stress bands legend -->
+        <div class="hi-bands">
+          <div class="hi-band-row" id="hiBand0">
+            <div class="hi-band-swatch" style="background:#6FBF73"></div>
+            <span class="hi-band-lbl">COMFORTABLE</span>
+            <span class="hi-band-range">&lt; 27 °C</span>
+          </div>
+          <div class="hi-band-row" id="hiBand1">
+            <div class="hi-band-swatch" style="background:#E8C03D"></div>
+            <span class="hi-band-lbl">CAUTION</span>
+            <span class="hi-band-range">27 – 32 °C</span>
+          </div>
+          <div class="hi-band-row" id="hiBand2">
+            <div class="hi-band-swatch" style="background:#E8A33D"></div>
+            <span class="hi-band-lbl">EXTREME CAUTION</span>
+            <span class="hi-band-range">32 – 39 °C</span>
+          </div>
+          <div class="hi-band-row" id="hiBand3">
+            <div class="hi-band-swatch" style="background:#C9584B"></div>
+            <span class="hi-band-lbl">DANGER</span>
+            <span class="hi-band-range">39 – 51 °C</span>
+          </div>
+          <div class="hi-band-row" id="hiBand4">
+            <div class="hi-band-swatch" style="background:#8B3A8B"></div>
+            <span class="hi-band-lbl">EXTREME DANGER</span>
+            <span class="hi-band-range">&gt; 51 °C</span>
+          </div>
+        </div>
+
+        <!-- Contextual description -->
+        <div class="hi-desc" id="hiDesc">
+          Waiting for sensor data…
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Status: lamps -->
+    <div class="panel">
+      <div class="panel-label">System Status</div>
+      <div class="lamps-row">
+        <div class="lamp-row">
+          <div class="lamp" id="lampPump"></div>
+          <span class="lamp-label">WATER PUMP</span>
+          <span class="lamp-status" id="lblPump">OFF</span>
+        </div>
+        <div class="lamp-row">
+          <div class="lamp" id="lampFan"></div>
+          <span class="lamp-label">VENT FAN</span>
+          <span class="lamp-status" id="lblFan">OFF</span>
+        </div>
+        <div class="lamp-row">
+          <div class="lamp on-teal" id="lampWater"></div>
+          <span class="lamp-label">RESERVOIR</span>
+          <span class="lamp-status" id="lblWater">OK</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="panel controls-panel">
+      <div class="panel-label">Controls</div>
+      <div class="controls-grid">
+
+        <!-- Mode selector -->
+        <div class="mode-group">
+          <div class="mode-label">Mode</div>
+          <div class="mode-seg" role="group" aria-label="Operating mode">
+            <button class="mode-btn active" id="btnAuto"   onclick="setMode('AUTO')">AUTO</button>
+            <button class="mode-btn"        id="btnManual" onclick="setMode('MANUAL')">MANUAL</button>
+          </div>
+        </div>
+
+        <!-- Rocker switches -->
+        <div class="rockers-group">
+          <div class="mode-label">Manual Actuators</div>
+
+          <div class="rocker-row" style="cursor:pointer" onclick="toggleActuator('pump')">
+            <div class="rocker-label">PUMP</div>
+            <div class="rocker off disabled" id="rockerPump" role="switch" aria-checked="false" tabindex="0"
+                 onkeydown="if(event.key==='Enter'||event.key===' ')toggleActuator('pump')"></div>
+            <div class="rocker-labels">
+              <span class="rocker-on-lbl">ON</span>
+              <span class="rocker-off-lbl">OFF</span>
+            </div>
+          </div>
+
+          <div class="rocker-row" style="cursor:pointer" onclick="toggleActuator('fan')">
+            <div class="rocker-label">FAN</div>
+            <div class="rocker off disabled" id="rockerFan" role="switch" aria-checked="false" tabindex="0"
+                 onkeydown="if(event.key==='Enter'||event.key===' ')toggleActuator('fan')"></div>
+            <div class="rocker-labels">
+              <span class="rocker-on-lbl">ON</span>
+              <span class="rocker-off-lbl">OFF</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Threshold sliders -->
+        <div class="sliders-group">
+          <div class="mode-label">Auto-Mode Thresholds</div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span class="slider-lbl">Temp Trigger</span>
+              <span class="slider-val" id="tempThrVal">30.0 °C</span>
+            </div>
+            <input type="range" id="tempThrSlider" min="15" max="50" step="0.5" value="30"
+                   oninput="updateThrDisplay('temp', this.value)"
+                   onchange="postThreshold('temp', this.value)" />
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-header">
+              <span class="slider-lbl">Humidity Trigger</span>
+              <span class="slider-val" id="humThrVal">70 %</span>
+            </div>
+            <input type="range" id="humThrSlider" min="20" max="100" step="1" value="70" class="teal"
+                   oninput="updateThrDisplay('hum', this.value)"
+                   onchange="postThreshold('hum', this.value)" />
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- History chart -->
+    <div class="panel history-panel">
+      <div class="panel-label">Sensor History</div>
+      <div class="history-toolbar">
+        <button class="time-btn active" id="tb1h"  onclick="loadHistory(1)">1H</button>
+        <button class="time-btn"        id="tb6h"  onclick="loadHistory(6)">6H</button>
+        <button class="time-btn"        id="tb24h" onclick="loadHistory(24)">24H</button>
+        <button class="time-btn"        id="tb7d"  onclick="loadHistory(168)">7D</button>
+      </div>
+      <div class="chart-container">
+        <canvas id="historyChart"></canvas>
+      </div>
+    </div>
+
+  </div><!-- /main-grid -->
+</div><!-- /app -->
+
+<script>
+// =============================================================================
+// Chicken AC — Dashboard JS
+// =============================================================================
+
+// ── Gauge drawing ─────────────────────────────────────────────────────────────
+function drawGauge(svgId, value, min, max, color, thresholdPct) {
+  const svg = document.getElementById(svgId);
+  svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const cx = 80, cy = 90, r = 70;
+  const startAngle = 210, endAngle = 330; // degrees, clockwise from top
+
+  function polarToXY(deg, radius) {
+    const rad = (deg - 90) * Math.PI / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad) };
+  }
+
+  function arcPath(r2, startDeg, endDeg) {
+    const s = polarToXY(startDeg, r2);
+    const e = polarToXY(endDeg, r2);
+    const large = (endDeg - startDeg) > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r2} ${r2} 0 ${large} 1 ${e.x} ${e.y}`;
+  }
+
+  // Background arc track
+  const track = document.createElementNS(ns, 'path');
+  track.setAttribute('d', arcPath(r, startAngle, startAngle + (endAngle - startAngle + 360) % 360));
+  track.setAttribute('fill', 'none');
+  track.setAttribute('stroke', '#2C3539');
+  track.setAttribute('stroke-width', '8');
+  track.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(track);
+
+  // Tick marks
+  const totalAngle = 270; // arc spans 270°
+  const tickCount = 10;
+  for (let i = 0; i <= tickCount; i++) {
+    const pct = i / tickCount;
+    const deg = startAngle + pct * totalAngle;
+    const outer = polarToXY(deg, r + 2);
+    const inner = polarToXY(deg, r - (i % 5 === 0 ? 10 : 6));
+    const tick = document.createElementNS(ns, 'line');
+    tick.setAttribute('x1', outer.x); tick.setAttribute('y1', outer.y);
+    tick.setAttribute('x2', inner.x); tick.setAttribute('y2', inner.y);
+    tick.setAttribute('stroke', '#3A4449');
+    tick.setAttribute('stroke-width', i % 5 === 0 ? '2' : '1');
+    svg.appendChild(tick);
+  }
+
+  // Threshold marker
+  if (thresholdPct !== undefined) {
+    const tDeg = startAngle + thresholdPct * totalAngle;
+    const tOuter = polarToXY(tDeg, r + 8);
+    const tInner = polarToXY(tDeg, r - 14);
+    const tLine = document.createElementNS(ns, 'line');
+    tLine.setAttribute('x1', tOuter.x); tLine.setAttribute('y1', tOuter.y);
+    tLine.setAttribute('x2', tInner.x); tLine.setAttribute('y2', tInner.y);
+    tLine.setAttribute('stroke', '#C9584B');
+    tLine.setAttribute('stroke-width', '2');
+    tLine.setAttribute('stroke-dasharray', '3 2');
+    svg.appendChild(tLine);
+  }
+
+  // Value arc (filled portion)
+  const clampedVal = Math.max(min, Math.min(max, value ?? min));
+  const pct = (clampedVal - min) / (max - min);
+  if (pct > 0) {
+    const valArc = document.createElementNS(ns, 'path');
+    valArc.setAttribute('d', arcPath(r, startAngle, startAngle + pct * totalAngle));
+    valArc.setAttribute('fill', 'none');
+    valArc.setAttribute('stroke', color);
+    valArc.setAttribute('stroke-width', '7');
+    valArc.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(valArc);
+  }
+
+  // Needle
+  const needleDeg = startAngle + pct * totalAngle;
+  const needleTip  = polarToXY(needleDeg, r - 8);
+  const needleBase = polarToXY(needleDeg, -12);
+  const needle = document.createElementNS(ns, 'line');
+  needle.setAttribute('x1', needleBase.x); needle.setAttribute('y1', needleBase.y);
+  needle.setAttribute('x2', needleTip.x);  needle.setAttribute('y2', needleTip.y);
+  needle.setAttribute('stroke', '#E8E4DA');
+  needle.setAttribute('stroke-width', '2');
+  needle.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(needle);
+
+  // Center pivot dot
+  const pivot = document.createElementNS(ns, 'circle');
+  pivot.setAttribute('cx', cx); pivot.setAttribute('cy', cy);
+  pivot.setAttribute('r', '4');
+  pivot.setAttribute('fill', color);
+  svg.appendChild(pivot);
+
+  // Min/max labels
+  [[startAngle, min], [startAngle + totalAngle, max]].forEach(([deg, lbl]) => {
+    const pos = polarToXY(deg, r - 18);
+    const txt = document.createElementNS(ns, 'text');
+    txt.setAttribute('x', pos.x); txt.setAttribute('y', pos.y);
+    txt.setAttribute('text-anchor', 'middle');
+    txt.setAttribute('dominant-baseline', 'middle');
+    txt.setAttribute('font-family', 'IBM Plex Mono, monospace');
+    txt.setAttribute('font-size', '8');
+    txt.setAttribute('fill', '#8B9598');
+    txt.textContent = lbl;
+    svg.appendChild(txt);
+  });
+}
+
+// ── Heat Index ──────────────────────────────────────────────────────────────
+// Rothfusz regression equation (NOAA/NWS standard).
+// Input: temp in °C, humidity in %. Output: heat index in °C.
+// Valid when T ≥ 27°C and RH ≥ 40%; below those values HI = T (negligible effect).
+function computeHeatIndex(tempC, rh) {
+  if (tempC == null || rh == null) return null;
+  if (tempC < 27 || rh < 40) return tempC; // HI not meaningful at low temp/humidity
+
+  // Convert to °F for the Rothfusz equation
+  const T = tempC * 9/5 + 32;
+  const R = rh;
+
+  let HI =
+    -42.379
+    + 2.04901523  * T
+    + 10.14333127 * R
+    - 0.22475541  * T * R
+    - 0.00683783  * T * T
+    - 0.05481717  * R * R
+    + 0.00122874  * T * T * R
+    + 0.00085282  * T * R * R
+    - 0.00000199  * T * T * R * R;
+
+  // Adjustments for low/high RH extremes
+  if (R < 13 && T >= 80 && T <= 112) {
+    HI -= ((13 - R) / 4) * Math.sqrt((17 - Math.abs(T - 95)) / 17);
+  } else if (R > 85 && T >= 80 && T <= 87) {
+    HI += ((R - 85) / 10) * ((87 - T) / 5);
+  }
+
+  // Convert back to °C
+  return (HI - 32) * 5/9;
+}
+
+const HI_BANDS = [
+  { max: 27,       color: '#6FBF73', label: 'COMFORTABLE',    desc: 'Conditions are comfortable. No heat stress risk for the flock.' },
+  { max: 32,       color: '#E8C03D', label: 'CAUTION',        desc: 'Mild heat stress possible. Monitor flock behaviour and water intake.' },
+  { max: 39,       color: '#E8A33D', label: 'EXTREME CAUTION',desc: 'Significant heat stress. Ensure cooling pad and ventilation are running. Increase observation frequency.' },
+  { max: 51,       color: '#C9584B', label: 'DANGER',         desc: '⚠ High heat stress. Risk of heat exhaustion in flock. Verify cooling system is at full capacity and inspect birds immediately.' },
+  { max: Infinity, color: '#8B3A8B', label: 'EXTREME DANGER', desc: '🚨 Extreme heat stress. Imminent risk of mortality. Take emergency action — maximise airflow, add ice to water, alert farm manager.' },
+];
+
+function renderHeatIndex(tempC, rh) {
+  const hi = computeHeatIndex(tempC, rh);
+  const valEl  = document.getElementById('hiValue');
+  const badgeEl= document.getElementById('hiBadge');
+  const descEl = document.getElementById('hiDesc');
+
+  if (hi === null) {
+    valEl.textContent   = '--.-';
+    valEl.style.color   = '#8B9598';
+    badgeEl.textContent = 'NO DATA';
+    badgeEl.style.color = '#8B9598';
+    descEl.textContent  = 'Waiting for sensor data…';
+    for (let i = 0; i < 5; i++) {
+      document.getElementById('hiBand'+i)?.querySelector('.hi-band-lbl')?.classList.remove('active');
+    }
+    document.getElementById('alertHeat').classList.remove('visible');
+    return;
+  }
+
+  // Find active band
+  const bandIdx = HI_BANDS.findIndex(b => hi < b.max);
+  const band = HI_BANDS[bandIdx];
+
+  valEl.textContent   = hi.toFixed(1);
+  valEl.style.color   = band.color;
+  badgeEl.textContent = band.label;
+  badgeEl.style.color = band.color;
+  descEl.textContent  = band.desc;
+
+  // Highlight active band row
+  for (let i = 0; i < 5; i++) {
+    const lbl = document.getElementById('hiBand'+i)?.querySelector('.hi-band-lbl');
+    if (lbl) lbl.classList.toggle('active', i === bandIdx);
+  }
+
+  // Trigger alert for Danger and above
+  document.getElementById('alertHeat').classList.toggle('visible', bandIdx >= 3);
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let state = {
+  connected: false, temperature: null, humidity: null,
+  pump: false, fan: false, mode: 'AUTO', water_ok: true,
+  temp_threshold: 30.0, hum_threshold: 70.0,
+};
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(s) {
+  // Connection lamp
+  const lamp = document.getElementById('connLamp');
+  const connText = document.getElementById('connText');
+  lamp.className = 'conn-lamp ' + (s.connected ? 'ok' : 'err');
+  connText.textContent = s.connected ? 'CONNECTED' : 'DISCONNECTED';
+
+  // Gauges
+  const tempThr = s.temp_threshold ?? 30;
+  const humThr  = s.hum_threshold  ?? 70;
+  const tempThrPct = (tempThr - 0) / (50 - 0);
+  const humThrPct  = (humThr  - 0) / (100 - 0);
+
+  drawGauge('tempGaugeSvg', s.temperature, 0,  50,  '#E8A33D', tempThrPct);
+  drawGauge('humGaugeSvg',  s.humidity,    0, 100, '#4FB3A9',  humThrPct);
+
+  document.getElementById('tempVal').textContent = s.temperature != null ? s.temperature.toFixed(1) : '--.-';
+  document.getElementById('humVal').textContent  = s.humidity    != null ? s.humidity.toFixed(1)    : '--.-';
+
+  // Heat Index
+  renderHeatIndex(s.temperature, s.humidity);
+
+  // Lamps
+  setLamp('lampPump', 'lblPump', s.pump,     'on-green', 'ON', 'OFF');
+  setLamp('lampFan',  'lblFan',  s.fan,      'on-green', 'ON', 'OFF');
+  setLamp('lampWater','lblWater', s.water_ok, 'on-teal', 'OK', 'EMPTY');
+
+  // Rocker switches
+  syncRocker('rockerPump', s.pump);
+  syncRocker('rockerFan',  s.fan);
+
+  // Mode buttons
+  document.getElementById('btnAuto').classList.toggle('active', s.mode === 'AUTO');
+  document.getElementById('btnManual').classList.toggle('active', s.mode === 'MANUAL');
+
+  // Enable/disable manual controls
+  const isManual = s.mode === 'MANUAL';
+  ['rockerPump', 'rockerFan'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.toggle('disabled', !isManual);
+    el.setAttribute('tabindex', isManual ? '0' : '-1');
+  });
+
+  // Sliders
+  const ts = document.getElementById('tempThrSlider');
+  const hs = document.getElementById('humThrSlider');
+  ts.value = s.temp_threshold ?? 30;
+  hs.value = s.hum_threshold  ?? 70;
+  document.getElementById('tempThrVal').textContent = parseFloat(ts.value).toFixed(1) + ' °C';
+  document.getElementById('humThrVal').textContent  = parseFloat(hs.value).toFixed(0) + ' %';
+
+  // Alerts
+  const noWater  = !s.water_ok;
+  const noConn   = !s.connected;
+  const heatAlert = document.getElementById('alertHeat').classList.contains('visible');
+  document.getElementById('alertWater').classList.toggle('visible', noWater);
+  document.getElementById('alertDisconn').classList.toggle('visible', noConn);
+  document.getElementById('alertNone').style.display = (noWater || noConn || heatAlert) ? 'none' : 'inline';
+}
+
+function setLamp(lampId, lblId, on, onClass, onTxt, offTxt) {
+  const lamp = document.getElementById(lampId);
+  lamp.className = 'lamp' + (on ? ' ' + onClass : '');
+  document.getElementById(lblId).textContent = on ? onTxt : offTxt;
+}
+
+function syncRocker(id, on) {
+  const el = document.getElementById(id);
+  el.classList.toggle('on',  on);
+  el.classList.toggle('off', !on);
+  el.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+async function setMode(val) {
+  await post('/api/mode', { val });
+}
+
+async function toggleActuator(which) {
+  const rockerId = which === 'pump' ? 'rockerPump' : 'rockerFan';
+  const rocker = document.getElementById(rockerId);
+  const currentOn = rocker.classList.contains('on');
+  const targetVal = currentOn ? 0 : 1;
+
+  // 1. Auto-switch to MANUAL mode & update state
+  state.mode = 'MANUAL';
+  state[which] = (targetVal === 1);
+
+  // 2. Instantly render UI state without waiting for network latency
+  render(state);
+
+  // 3. Post to backend
+  await post('/api/mode', { val: 'MANUAL' });
+  await post('/api/' + which, { val: targetVal });
+}
+
+function updateThrDisplay(type, val) {
+  if (type === 'temp') {
+    document.getElementById('tempThrVal').textContent = parseFloat(val).toFixed(1) + ' °C';
+  } else {
+    document.getElementById('humThrVal').textContent = parseFloat(val).toFixed(0) + ' %';
+  }
+}
+
+async function postThreshold(type, val) {
+  const endpoint = type === 'temp' ? '/api/temp-threshold' : '/api/hum-threshold';
+  await post(endpoint, { val: parseFloat(val) });
+}
+
+async function post(url, body) {
+  // If Web Serial is connected, send command directly over serial port
+  if (webSerialWriter) {
+    try {
+      let cmdObj = null;
+      if (url === '/api/mode') cmdObj = { cmd: 'mode', val: body.val };
+      else if (url === '/api/pump') cmdObj = { cmd: 'pump', val: body.val };
+      else if (url === '/api/fan') cmdObj = { cmd: 'fan', val: body.val };
+      else if (url === '/api/temp-threshold') cmdObj = { cmd: 'temp_thr', val: body.val };
+      else if (url === '/api/hum-threshold') cmdObj = { cmd: 'hum_thr', val: body.val };
+
+      if (cmdObj) {
+        const line = JSON.stringify(cmdObj) + '\n';
+        const encoder = new TextEncoder();
+        await webSerialWriter.write(encoder.encode(line));
+        console.log('Sent over Web Serial:', line.trim());
+      }
+    } catch (err) {
+      console.error('Web Serial write error:', err);
+    }
+  }
+
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) console.warn('POST', url, data);
+  } catch (e) {
+    // If backend is not available but Web Serial is active, ignore fetch error
+    if (!webSerialWriter) console.error('POST failed:', url, e);
+  }
+}
+
+// ── WebSocket & HTTP Polling Fallback ─────────────────────────────────────────
+let ws = null;
+let wsReconnectTimer = null;
+let pollTimer = null;
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/status');
+      if (res.ok) {
+        const s = await res.json();
+        Object.assign(state, s);
+        render(state);
+      }
+    } catch (err) {
+      console.warn('HTTP poll failed', err);
+    }
+  }, 2000);
+}
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  try {
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onmessage = (e) => {
+      try {
+        const s = JSON.parse(e.data);
+        Object.assign(state, s);
+        render(state);
+      } catch (err) {
+        console.error('WS parse error', err);
+      }
+    };
+
+    ws.onopen = () => {
+      clearTimeout(wsReconnectTimer);
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      console.log('WebSocket connected');
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed, starting HTTP polling fallback...');
+      startPolling();
+      wsReconnectTimer = setTimeout(connectWS, 10000);
+    };
+
+    ws.onerror = (e) => {
+      console.error('WebSocket error, switching to HTTP polling', e);
+      startPolling();
+      try { ws.close(); } catch(_) {}
+    };
+  } catch(e) {
+    console.warn('WebSocket init failed, using HTTP polling', e);
+    startPolling();
+  }
+}
+
+// ── History chart ─────────────────────────────────────────────────────────────
+let historyChart = null;
+let activeHours = 1;
+
+function initChart() {
+  const ctx = document.getElementById('historyChart').getContext('2d');
+  historyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Temperature (°C)',
+          data: [],
+          borderColor: '#E8A33D',
+          backgroundColor: 'rgba(232,163,61,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'yTemp',
+        },
+        {
+          label: 'Humidity (%)',
+          data: [],
+          borderColor: '#4FB3A9',
+          backgroundColor: 'rgba(79,179,169,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'yHum',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#8B9598',
+            font: { family: 'IBM Plex Mono', size: 11 },
+          },
+        },
+        tooltip: {
+          backgroundColor: '#262E32',
+          borderColor: '#3A4449',
+          borderWidth: 1,
+          titleColor: '#E8E4DA',
+          bodyColor: '#8B9598',
+          titleFont: { family: 'IBM Plex Mono' },
+          bodyFont:  { family: 'IBM Plex Mono' },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8B9598', font: { family: 'IBM Plex Mono', size: 10 }, maxRotation: 0 },
+          grid:  { color: '#2C3539' },
+        },
+        yTemp: {
+          position: 'left',
+          ticks: { color: '#E8A33D', font: { family: 'IBM Plex Mono', size: 10 } },
+          grid:  { color: '#2C3539' },
+          title: { display: true, text: '°C', color: '#E8A33D', font: { family: 'IBM Plex Mono', size: 10 } },
+        },
+        yHum: {
+          position: 'right',
+          ticks: { color: '#4FB3A9', font: { family: 'IBM Plex Mono', size: 10 } },
+          grid:  { drawOnChartArea: false },
+          title: { display: true, text: '%', color: '#4FB3A9', font: { family: 'IBM Plex Mono', size: 10 } },
+        },
+      },
+    },
+  });
+}
+
+async function loadHistory(hours) {
+  activeHours = hours;
+  // Update toolbar buttons
+  ['1h','6h','24h','7d'].forEach(k => document.getElementById('tb'+k)?.classList.remove('active'));
+  const btnMap = { 1:'tb1h', 6:'tb6h', 24:'tb24h', 168:'tb7d' };
+  document.getElementById(btnMap[hours])?.classList.add('active');
+
+  try {
+    const r = await fetch(`/api/history?hours=${hours}`);
+    const rows = await r.json();
+
+    const labels = rows.map(row => {
+      const d = new Date(row.ts * 1000);
+      if (hours <= 1)  return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      if (hours <= 24) return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      return d.toLocaleDateString([], { month:'short', day:'numeric' }) + ' ' +
+             d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    });
+
+    historyChart.data.labels = labels;
+    historyChart.data.datasets[0].data = rows.map(r => r.temperature);
+    historyChart.data.datasets[1].data = rows.map(r => r.humidity);
+    historyChart.update('none');
+  } catch (e) {
+    console.error('Failed to load history:', e);
+  }
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+function applyTheme(isDark) {
+  document.documentElement.classList.toggle('light', !isDark);
+  const icon = document.getElementById('themeIcon');
+  const txt  = document.getElementById('themeTxt');
+  if (isDark) {
+    icon.textContent = '☀️';
+    txt.textContent  = 'LIGHT';
+  } else {
+    icon.textContent = '🌙';
+    txt.textContent  = 'DARK';
+  }
+  // Update theme-color meta so browser chrome matches
+  document.querySelector('meta[name="theme-color"]').content = isDark ? '#1E2427' : '#D6CFC4';
+}
+
+// ── Web Serial API ────────────────────────────────────────────────────────────
+let webSerialPort = null;
+let webSerialWriter = null;
+
+async function requestWebSerialPort() {
+  if (!('serial' in navigator)) {
+    alert('Web Serial API is not supported in your browser.\n\nPlease use Google Chrome, Microsoft Edge, or Opera on PC/Android (with USB-OTG).');
+    return;
+  }
+
+  try {
+    // Prompt user to select a serial port
+    webSerialPort = await navigator.serial.requestPort();
+    
+    // Open the port at 9600 baud (matching Arduino / HC-05 default)
+    await webSerialPort.open({ baudRate: 9600 });
+    
+    document.getElementById('serialBtnTxt').textContent = 'SERIAL ACTIVE';
+    document.getElementById('serialBtn').style.borderColor = 'var(--green)';
+
+    // Update connection indicator
+    state.connected = true;
+    render(state);
+
+    // Setup writer for sending commands
+    const textEncoder = new TextEncoderStream();
+    const writableStreamClosed = textEncoder.readable.pipeTo(webSerialPort.writable);
+    webSerialWriter = textEncoder.writable.getWriter();
+
+    // Listen for incoming serial data line by line
+    const textDecoder = new TextDecoderStream();
+    const readableStreamClosed = webSerialPort.readable.pipeTo(textDecoder.writable);
+    const reader = textDecoder.readable.getReader();
+
+    let buffer = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        reader.releaseLock();
+        break;
+      }
+      if (value) {
+        buffer += value;
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep partial line in buffer
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.length > 0) {
+            try {
+              const data = JSON.parse(trimmed);
+              state.temperature = data.t;
+              state.humidity = data.h;
+              state.pump = !!data.p;
+              state.fan = !!data.f;
+              state.mode = data.m;
+              state.water_ok = !!data.w;
+              state.temp_threshold = data.tt;
+              state.hum_threshold = data.ht;
+              state.connected = true;
+              render(state);
+            } catch (jsonErr) {
+              // Ignore malformed serial lines
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'NotFoundError') { // NotFoundError is thrown if user cancels prompt
+      console.error('Web Serial Error:', err);
+      alert('Failed to open serial port: ' + err.message);
+    }
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('light');
+  localStorage.setItem('chickenac-theme', isDark ? 'dark' : 'light');
+  applyTheme(isDark);
+}
+
+// Apply saved theme immediately (before first render to avoid flash)
+(function() {
+  const saved = localStorage.getItem('chickenac-theme');
+  applyTheme(saved !== 'light'); // default = dark
+})();
+
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  initChart();
+  connectWS();
+  await loadHistory(1);
+
+  // Poll history every 60 s to keep chart fresh
+  setInterval(() => loadHistory(activeHours), 60_000);
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register('/service-worker.js');
+      console.log('Service worker registered:', reg.scope);
+    } catch (e) {
+      console.warn('Service worker registration failed:', e);
+    }
+  }
+})();
+</script>
+</body>
+</html>
