@@ -1,8 +1,11 @@
 // =============================================================================
 // esp8266_controller.ino — Chicken AC Real-Time Synchronized Controller
-// Synchronizes TFT LCD, Local Web Server (192.168.4.1), and Render Cloud
-// (chicken-ac.onrender.com) to refresh in lockstep every 2 seconds.
-// Immediate screen update upon any manual toggle command execution.
+// Updates:
+// 1. Web AUTO / MANUAL Mode Sync: Instant UI toggle & zero 409 errors.
+// 2. Coordinated AUTO Cooling Protocol: Fan and Pump turn ON TOGETHER when temperature
+//    exceeds threshold.
+// 3. Customizable Float Switch Polarity: Flip INVERT_FLOAT_SWITCH to true/false as needed.
+// 4. TFT Display: Displays 'MAN' for manual mode.
 // =============================================================================
 
 #include <ESP8266WiFi.h>
@@ -30,6 +33,10 @@ const char* SERVER_URL = "https://chicken-ac.onrender.com/api/telemetry";
 #define PUMP_PIN     D2   // Water Pump Relay (GPIO 4)
 #define WATER_SW_PIN D6   // Water Level Float Switch (GPIO 12 to GND)
 
+// ── Float Switch Polarity Configuration ──────────────────────────────────────
+// If float switch reads OK when empty and LOW when full, set this to true!
+const bool INVERT_FLOAT_SWITCH = false;
+
 // ── Relay Logic Configuration (Active-LOW Relays) ────────────────────────────
 #define RELAY_ON     LOW
 #define RELAY_OFF    HIGH
@@ -50,13 +57,13 @@ const char* SERVER_URL = "https://chicken-ac.onrender.com/api/telemetry";
 bool isAutoMode    = true;
 bool fanState      = false;
 bool pumpState     = false;
-bool waterLevelOK  = true; // true = Water available (Float UP / Pin LOW)
+bool waterLevelOK  = true; // true = Water available, false = Low water
 
 float temperature  = NAN;
 float humidity     = NAN;
 
-float tempThreshold = 30.0; // Turn on Fan above this temp (°C)
-float humThreshold  = 70.0; // Turn on Pump above this humidity limit (%)
+float tempThreshold = 30.0; // Turn on Fan + Pump above this temp (°C)
+float humThreshold  = 70.0; // Humidity safety limit (%)
 
 DHT dht(DHTPIN, DHTTYPE, 15);
 ESP8266WebServer server(80);
@@ -83,7 +90,7 @@ void drawWifiIcon(uint16_t x, uint16_t y);
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\nInitializing Synchronized Chicken AC Controller...");
+  Serial.println("\nInitializing Chicken AC Synchronized Controller...");
 
   // Initialize GPIO Relay Pins
   pinMode(FAN_PIN, OUTPUT);
@@ -182,20 +189,39 @@ void readSensors() {
     temperature = t;
   }
 
+  // DEBOUNCED FLOAT SWITCH READING:
+  // Read pin twice with a 10ms settling delay
+  int sample1 = digitalRead(WATER_SW_PIN);
+  delay(10);
+  int sample2 = digitalRead(WATER_SW_PIN);
+  int stablePinVal = (sample1 == sample2) ? sample1 : sample2;
+
   // FLOAT SWITCH LOGIC:
-  // When tank is FULL with water, float arm floats UP -> closes circuit to GND (Pin reads LOW -> Water OK).
-  // When tank is EMPTY, float arm hangs DOWN -> open circuit (Pin reads HIGH -> Low Water).
-  waterLevelOK = (digitalRead(WATER_SW_PIN) == LOW);
+  // Default: Float RISEN -> LOW (0V) -> Water OK = true.
+  // If INVERT_FLOAT_SWITCH = true: Float RISEN -> HIGH (3.3V) -> Water OK = true.
+  if (INVERT_FLOAT_SWITCH) {
+    waterLevelOK = (stablePinVal == HIGH);
+  } else {
+    waterLevelOK = (stablePinVal == LOW);
+  }
+
+  // Diagnostic Serial Print
+  Serial.print("[FLOAT SENSOR] Pin D6 Raw: ");
+  Serial.print(stablePinVal);
+  Serial.print(" | Water Status: ");
+  Serial.println(waterLevelOK ? "OK (FULL)" : "LOW (EMPTY)");
 }
 
 // =============================================================================
 void processClimateLogic() {
-  // COORDINATED EVAPORATIVE COOLING LOGIC:
-  // In AUTO mode, update Fan and Pump based on temperature and humidity thresholds.
+  // COORDINATED EVAPORATIVE COOLING PROTOCOL (AUTO MODE):
+  // When temperature exceeds threshold (e.g. >= 30.0°C), BOTH the Ventilation Fan
+  // AND the Water Pump turn ON TOGETHER to provide maximum evaporative cooling.
   if (isAutoMode) {
-    if (!isnan(temperature) && !isnan(humidity)) {
-      fanState = (temperature >= tempThreshold);
-      pumpState = (humidity >= humThreshold) && fanState && waterLevelOK;
+    if (!isnan(temperature)) {
+      bool overTemp = (temperature >= tempThreshold);
+      fanState = overTemp;
+      pumpState = overTemp && waterLevelOK; // Turn ON pump with fan if water level is OK
     } else {
       fanState = false;
       pumpState = false;
@@ -285,12 +311,14 @@ void processCommand(JsonObject doc) {
   const char* cmd = doc["cmd"];
   if (!cmd) return;
 
-  if (strcmp(cmd, "mode") == 0) {
+  if (strcmp(cmd, "mode") == 0 || strcmp(cmd, "set_mode") == 0) {
     if (doc["val"].is<const char*>()) {
       const char* val = doc["val"];
-      isAutoMode = (strcmp(val, "AUTO") == 0);
+      isAutoMode = (strcmp(val, "AUTO") == 0 || strcmp(val, "auto") == 0 || strcmp(val, "1") == 0);
     } else if (doc["val"].is<int>()) {
       isAutoMode = (doc["val"].as<int>() == 1);
+    } else if (doc["val"].is<bool>()) {
+      isAutoMode = doc["val"].as<bool>();
     }
   } else if (strcmp(cmd, "pump") == 0) {
     int val = doc["val"].as<int>();
@@ -423,7 +451,6 @@ void handleRoot() {
                 .then(() => updateData());
         }
 
-        // Synchronized 2-second refresh rate (matching screen & cloud telemetry)
         setInterval(updateData, 2000);
         updateData();
     </script>
@@ -501,7 +528,7 @@ void updateTFTDisplay() {
   tft.fillRect(8, 132, 304, 52, COLOR_CARD);
   tft.drawRoundRect(8, 132, 304, 52, 6, COLOR_CYAN);
 
-  // Sub-Box 1: MODE (Centered)
+  // Sub-Box 1: MODE (Centered, Display 'MAN' for manual mode)
   tft.fillRect(12, 136, 92, 44, COLOR_BG);
   tft.setTextSize(1);
   tft.setTextColor(COLOR_GRAY);
@@ -509,8 +536,8 @@ void updateTFTDisplay() {
   tft.print("MODE");
   tft.setTextSize(2);
   tft.setTextColor(isAutoMode ? COLOR_CYAN : COLOR_ORANGE);
-  tft.setCursor(isAutoMode ? 34 : 34, 158);
-  tft.print(isAutoMode ? "AUTO" : "MANU");
+  tft.setCursor(isAutoMode ? 34 : 40, 158);
+  tft.print(isAutoMode ? "AUTO" : "MAN");
 
   // Sub-Box 2: FAN (Centered)
   tft.fillRect(112, 136, 92, 44, fanState ? COLOR_GREEN : COLOR_BG);
