@@ -1069,6 +1069,8 @@ function syncRocker(id, on) {
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 async function setMode(val) {
+  state.mode = val;
+  render(state);
   await post('/api/mode', { val });
 }
 
